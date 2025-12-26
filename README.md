@@ -24,8 +24,8 @@ Build a real-time streaming pipeline from Apache Kafka to Snowflake using Openfl
 │   ├── 5.setup_alert.sql         # Setup Alert
 │   └── 6.cleanup.sql             # Cleanup script
 └── data/
-    ├── sample_logs.json           # 50 base schema sample records
-    ├── sample_logs_evolved.json   # 80 evolved schema sample records
+    ├── logs.json                 # 50 base schema sample records
+    ├── logs_evolved.json         # 80 evolved schema sample records
     └── generate_logs.py           # Python log generator script
 ```
 
@@ -103,12 +103,12 @@ task kafka-cluster-info      # Show cluster information
 
 ## Sample Data
 
-**`data/sample_logs.json`** (50 records):
+**`data/logs.json`** (50 records):
 
 - Base schema with 11 fields (timestamp, level, service, host, message, etc.)
 - Web API requests, authentication, database operations, payments
 
-**`data/sample_logs_evolved.json`** (80 records):
+**`data/logs_evolved.json`** (80 records):
 
 - Evolved schema with 29 fields
 - Includes additional fields: region, trace_id, auth_method, currency, payment_method, and more

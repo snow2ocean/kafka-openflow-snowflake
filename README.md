@@ -1,12 +1,8 @@
-# Getting Started with Snowflake Openflow Kafka Connector
-
-Companion repository for the [Snowflake Openflow Kafka Connector Quickstart](https://quickstarts.snowflake.com/guide/getting_started_with_openflow_kafka_connector/index.html).
-
+# Getting Started with Stream to Insight: Real-Time Kafka to Snowflake Pipelines with Openflow and Intelligent Log Agents
 ## Overview
 
-Build a real-time streaming pipeline from Apache Kafka to Snowflake using Openflow. Stream application logs from Kafka to Snowflake with automatic schema detection, schema evolution, and perform powerful SQL analytics including semantic search with Cortex Search.
+Build a real-time streaming pipeline from Apache Kafka to Snowflake using Openflow. Stream application logs from Kafka to Snowflake with automatic schema detection, schema evolution, and perform powerful SQL analytics including semantic search with Snowflake Intellegent Agent.
 
-**📖 [Follow the Complete Quickstart Guide](https://quickstarts.snowflake.com/guide/getting_started_with_openflow_kafka_connector/index.html)**
 
 ## Repository Contents
 
@@ -25,39 +21,26 @@ Build a real-time streaming pipeline from Apache Kafka to Snowflake using Openfl
 │   ├── 2b.verify_schema_evolution.sql # Verify schema evolution
 │   ├── 3.analytics_queries.sql   # Example analytics queries
 │   ├── 4.cortex_search.sql       # Semantic search with Cortex Search
-│   └── 5.cleanup.sql             # Cleanup script
-└── sample-data/
+│   ├── 5.setup_alert.sql         # Setup Alert
+│   └── 6.cleanup.sql             # Cleanup script
+└── data/
     ├── sample_logs.json           # 50 base schema sample records
     ├── sample_logs_evolved.json   # 80 evolved schema sample records
     └── generate_logs.py           # Python log generator script
 ```
 
-## Quick Start
 
 ### 1. Clone and Setup
 
 ```bash
-git clone https://github.com/Snowflake-Labs/sfguide-getting-started-openflow-kafka-connector.git
-cd sfguide-getting-started-openflow-kafka-connector
-export QUICK_START_REPO=$PWD
+git clone https://github.com/snow2ocean/kafka-openflow-snowflake.git
+cd kafka-openflow-snowflake
+export KAFKA_OPENFLOW_REPO=$PWD
 ```
 
-### 2. Install Task Runner (Optional)
+### 2. Follow the Quickstart Guide
 
-```bash
-# macOS
-brew install go-task
-
-# Linux
-sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
-
-# See all available tasks
-task list
-```
-
-### 3. Follow the Quickstart Guide
-
-**👉 [Complete Step-by-Step Instructions](https://quickstarts.snowflake.com/guide/getting_started_with_openflow_kafka_connector/index.html)**
+**👉 [Complete Step-by-Step Instructions](https://www.youtube.com/@Snow2Ocean)**
 
 The quickstart guide walks you through:
 
@@ -120,18 +103,18 @@ task kafka-cluster-info      # Show cluster information
 
 ## Sample Data
 
-**`sample-data/sample_logs.json`** (50 records):
+**`data/sample_logs.json`** (50 records):
 
 - Base schema with 11 fields (timestamp, level, service, host, message, etc.)
 - Web API requests, authentication, database operations, payments
 
-**`sample-data/sample_logs_evolved.json`** (80 records):
+**`data/sample_logs_evolved.json`** (80 records):
 
 - Evolved schema with 29 fields
 - Includes additional fields: region, trace_id, auth_method, currency, payment_method, and more
 - Contains system metrics (memory_percent, disk_usage_percent) for Cortex Search examples
 
-**`sample-data/generate_logs.py`**:
+**`data/generate_logs.py`**:
 
 - Generate custom log files: `python generate_logs.py --count 100 --output my_logs.json`
 - Test Kafka connection: `python generate_logs.py --test-connection`
@@ -148,27 +131,9 @@ All SQL scripts are referenced in the quickstart guide:
 - **`2b.verify_schema_evolution.sql`** - Verify evolved schema (29 fields) and automatic column detection
 - **`3.analytics_queries.sql`** - Advanced analytics examples (log analysis, time-series, performance metrics)
 - **`4.cortex_search.sql`** - Semantic search queries with Cortex Search
+- **`5.setup_alert.sql`** - Setup Alert
 - **`5.cleanup.sql`** - Clean up all Snowflake resources
 
-## Resources
-
-**Quickstart & Documentation:**
-
-- [Openflow Kafka Connector Quickstart](https://quickstarts.snowflake.com/guide/getting_started_with_openflow_kafka_connector/index.html) ⭐
-- [Openflow Documentation](https://docs.snowflake.com/en/user-guide/data-integration/openflow/about)
-- [Kafka Connector Documentation](https://docs.snowflake.com/en/user-guide/data-integration/openflow/connectors/kafka/about)
-- [rpk CLI Setup Guide](RPK_CLI_README.md)
-
-**Related Quickstarts:**
-
-- [Getting Started with Openflow SPCS](https://quickstarts.snowflake.com/guide/getting_started_with_openflow_spcs/index.html)
-- [Getting Started with PostgreSQL CDC](https://quickstarts.snowflake.com/guide/getting_started_with_openflow_postgresql_cdc/index.html)
-- [Getting Started with Unstructured Data Pipeline](https://quickstarts.snowflake.com/guide/getting_started_openflow_unstructured_data_pipeline/index.html)
-
-## Support
-
-- [Open an issue](https://github.com/Snowflake-Labs/sfquickstarts/issues) on GitHub
-- Visit [Snowflake Community](https://community.snowflake.com/)
 
 ## License
 

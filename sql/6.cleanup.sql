@@ -45,7 +45,7 @@ DROP WAREHOUSE IF EXISTS KAFKA_OPENFLOW_WH;
 |*****************************************************/
 
 -- Drop external access integration
-DROP EXTERNAL ACCESS INTEGRATION IF EXISTS quickstart_kafka_connector_access;
+DROP EXTERNAL ACCESS INTEGRATION IF EXISTS kafka_external_integration;
 
 /*****************************************************
 | Notes:
@@ -63,4 +63,5 @@ DROP EXTERNAL ACCESS INTEGRATION IF EXISTS quickstart_kafka_connector_access;
 |   3. Optionally delete the Kafka topic:
 |      rpk topic delete application-logs
 |*****************************************************/
+
 

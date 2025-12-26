@@ -1,0 +1,412 @@
+-- ============================================================================
+-- Copyright 2025 Snowflake Inc.
+-- SPDX-License-Identifier: Apache-2.0
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0
+-- ============================================================================
+--
+-- Openflow Kafka Connector Quickstart - Analytics Queries
+--
+-- This script demonstrates powerful analytics you can perform on streaming
+-- log data in Snowflake.
+--
+-- Note: These queries use actual column names (LEVEL, SERVICE, MESSAGE, etc.)
+-- created by Openflow's automatic schema detection, not RECORD_CONTENT.
+-- ============================================================================
+
+-- Set context
+USE ROLE KAFKA_OPENFLOW_ROLE;
+USE DATABASE KAFKA_OPENFLOW_DB;
+USE SCHEMA PUBLIC;
+USE WAREHOUSE KAFKA_OPENFLOW_WH;
+
+/*****************************************************
+ * BASIC LOG ANALYTICS
+ *****************************************************/
+
+-- 1. Distribution of Log Levels
+SELECT 
+  LEVEL as LOG_LEVEL,
+  COUNT(*) as EVENT_COUNT,
+  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as PERCENTAGE
+FROM "APPLICATION-LOGS"
+GROUP BY LOG_LEVEL
+ORDER BY EVENT_COUNT DESC;
+
+-- 2. Top Error Messages
+SELECT 
+  MESSAGE as ERROR_MESSAGE,
+  SERVICE,
+  COUNT(*) as ERROR_COUNT
+FROM "APPLICATION-LOGS"
+WHERE LEVEL = 'ERROR'
+GROUP BY ERROR_MESSAGE, SERVICE
+ORDER BY ERROR_COUNT DESC
+LIMIT 10;
+
+-- 3. Service Health Overview
+SELECT 
+  SERVICE as SERVICE_NAME,
+  COUNT(*) as TOTAL_EVENTS,
+  SUM(CASE WHEN LEVEL = 'ERROR' THEN 1 ELSE 0 END) as ERROR_COUNT,
+  SUM(CASE WHEN LEVEL = 'WARN' THEN 1 ELSE 0 END) as WARN_COUNT,
+  SUM(CASE WHEN LEVEL = 'INFO' THEN 1 ELSE 0 END) as INFO_COUNT,
+  ROUND(ERROR_COUNT * 100.0 / NULLIF(TOTAL_EVENTS, 0), 2) as ERROR_RATE_PCT
+FROM "APPLICATION-LOGS"
+GROUP BY SERVICE_NAME
+ORDER BY ERROR_RATE_PCT DESC;
+
+/*****************************************************
+ * TIME-SERIES ANALYSIS
+ * Note: TIMESTAMP column is stored as TEXT, so we use TO_TIMESTAMP()
+ *****************************************************/
+
+-- 4. Events Per Minute (Last Hour)
+SELECT 
+  DATE_TRUNC('minute', TO_TIMESTAMP(TIMESTAMP)) as TIME_BUCKET,
+  COUNT(*) as TOTAL_EVENTS,
+  SUM(CASE WHEN LEVEL = 'ERROR' THEN 1 ELSE 0 END) as ERRORS,
+  SUM(CASE WHEN LEVEL = 'WARN' THEN 1 ELSE 0 END) as WARNINGS,
+  SUM(CASE WHEN LEVEL = 'INFO' THEN 1 ELSE 0 END) as INFO_LOGS
+FROM "APPLICATION-LOGS"
+WHERE TO_TIMESTAMP(TIMESTAMP) >= DATEADD('hour', -1, CURRENT_TIMESTAMP())
+GROUP BY TIME_BUCKET
+ORDER BY TIME_BUCKET DESC
+LIMIT 20;
+
+-- 5. Hourly Event Distribution (Last 24 Hours)
+SELECT 
+  DATE_TRUNC('hour', TO_TIMESTAMP(TIMESTAMP)) as HOUR_BUCKET,
+  COUNT(*) as EVENT_COUNT,
+  COUNT(DISTINCT SERVICE) as ACTIVE_SERVICES,
+  COUNT(DISTINCT HOST) as ACTIVE_HOSTS
+FROM "APPLICATION-LOGS"
+WHERE TO_TIMESTAMP(TIMESTAMP) >= DATEADD('day', -1, CURRENT_TIMESTAMP())
+GROUP BY HOUR_BUCKET
+ORDER BY HOUR_BUCKET DESC;
+
+-- 6. Peak Traffic Analysis
+SELECT 
+  HOUR(TO_TIMESTAMP(TIMESTAMP)) as HOUR_OF_DAY,
+  COUNT(*) as EVENT_COUNT,
+  AVG(DURATION_MS) as AVG_DURATION_MS
+FROM "APPLICATION-LOGS"
+WHERE TO_TIMESTAMP(TIMESTAMP) >= DATEADD('day', -7, CURRENT_TIMESTAMP())
+  AND DURATION_MS IS NOT NULL
+GROUP BY HOUR_OF_DAY
+ORDER BY HOUR_OF_DAY;
+
+/*****************************************************
+ * PERFORMANCE ANALYTICS
+ *****************************************************/
+
+-- 7. Slowest Requests
+SELECT
+  SERVICE,
+  REQUEST_ID,
+  DURATION_MS,
+  MESSAGE,
+  TIMESTAMP AS REQUEST_TIME,
+  LEVEL,
+  STATUS_CODE
+FROM
+  KAFKA_OPENFLOW_DB.PUBLIC."APPLICATION-LOGS"
+WHERE
+  NOT DURATION_MS IS NULL
+  AND DURATION_MS > 0
+ORDER BY
+  DURATION_MS DESC
+LIMIT
+  20;
+
+-- 8. Performance by Service
+SELECT
+  SERVICE,
+  COUNT(*) as TOTAL_REQUESTS,
+  ROUND(AVG(DURATION_MS), 2) as AVG_DURATION_MS,
+  MIN(DURATION_MS) as MIN_DURATION_MS,
+  MAX(DURATION_MS) as MAX_DURATION_MS,
+  SUM(
+    CASE
+      WHEN STATUS_CODE >= 400 THEN 1
+      ELSE 0
+    END
+  ) as ERROR_COUNT,
+  ROUND(
+    AVG(
+      CASE
+        WHEN STATUS_CODE >= 400 THEN 1
+        ELSE 0
+      END
+    ) * 100,
+    2
+  ) as ERROR_RATE_PCT
+FROM
+  KAFKA_OPENFLOW_DB.PUBLIC."APPLICATION-LOGS"
+WHERE
+  DURATION_MS IS NOT NULL
+  AND DURATION_MS > 0
+GROUP BY
+  SERVICE
+ORDER BY
+  AVG_DURATION_MS DESC;
+
+-- 9. Response Code Distribution
+SELECT 
+  STATUS_CODE,
+  SERVICE,
+  COUNT(*) as REQUEST_COUNT,
+  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY SERVICE), 2) as PCT_OF_SERVICE
+FROM "APPLICATION-LOGS"
+WHERE STATUS_CODE IS NOT NULL
+GROUP BY STATUS_CODE, SERVICE
+ORDER BY SERVICE, REQUEST_COUNT DESC;
+
+/*****************************************************
+ * ERROR ANALYSIS
+ *****************************************************/
+
+-- 10. Error Timeline (Last 24 Hours)
+SELECT 
+  DATE_TRUNC('hour', TO_TIMESTAMP(TIMESTAMP)) as HOUR_BUCKET,
+  SERVICE,
+  COUNT(*) as ERROR_COUNT,
+  ARRAY_AGG(DISTINCT MESSAGE) as ERROR_MESSAGES
+FROM "APPLICATION-LOGS"
+WHERE LEVEL = 'ERROR'
+  AND TO_TIMESTAMP(TIMESTAMP) >= DATEADD('day', -1, CURRENT_TIMESTAMP())
+GROUP BY HOUR_BUCKET, SERVICE
+ORDER BY HOUR_BUCKET DESC, ERROR_COUNT DESC;
+
+-- 11. Error Correlation (Errors occurring together)
+WITH ERROR_WINDOWS AS (
+  SELECT
+    SERVICE,
+    CAST(TIMESTAMP AS TIMESTAMP) AS ERROR_TIME,
+    REQUEST_ID,
+    STATUS_CODE,
+    DURATION_MS,
+    DATE_TRUNC ('MINUTE', CAST(TIMESTAMP AS TIMESTAMP)) AS TIME_WINDOW
+    /* Create 5-minute time windows */
+  FROM
+    KAFKA_OPENFLOW_DB.PUBLIC."APPLICATION-LOGS"
+  WHERE
+    LEVEL ILIKE '%ERROR%'
+),
+SERVICE_PAIRS AS (
+  SELECT
+    a.SERVICE AS SERVICE_A,
+    b.SERVICE AS SERVICE_B,
+    a.TIME_WINDOW,
+    COUNT(DISTINCT a.REQUEST_ID) AS ERRORS_SERVICE_A,
+    COUNT(DISTINCT b.REQUEST_ID) AS ERRORS_SERVICE_B,
+    AVG(a.DURATION_MS) AS AVG_DURATION_A,
+    AVG(b.DURATION_MS) AS AVG_DURATION_B
+  FROM
+    ERROR_WINDOWS AS a
+    JOIN ERROR_WINDOWS AS b ON a.TIME_WINDOW = b.TIME_WINDOW
+    AND a.SERVICE < b.SERVICE
+    /* Avoid duplicate pairs */
+  GROUP BY
+    a.SERVICE,
+    b.SERVICE,
+    a.TIME_WINDOW
+  HAVING
+    ERRORS_SERVICE_A > 0
+    AND ERRORS_SERVICE_B > 0
+)
+SELECT
+  SERVICE_A,
+  SERVICE_B,
+  COUNT(*) AS CONCURRENT_ERROR_WINDOWS,
+  SUM(ERRORS_SERVICE_A) AS TOTAL_ERRORS_A,
+  SUM(ERRORS_SERVICE_B) AS TOTAL_ERRORS_B,
+  ROUND(AVG(AVG_DURATION_A), 2) AS AVG_DURATION_A,
+  ROUND(AVG(AVG_DURATION_B), 2) AS AVG_DURATION_B
+FROM
+  SERVICE_PAIRS
+GROUP BY
+  SERVICE_A,
+  SERVICE_B
+HAVING
+  CONCURRENT_ERROR_WINDOWS > 1
+ORDER BY
+  CONCURRENT_ERROR_WINDOWS DESC,
+  TOTAL_ERRORS_A + TOTAL_ERRORS_B DESC;
+
+-- 12. Error Rate Trend
+SELECT 
+  DATE_TRUNC('hour', TO_TIMESTAMP(TIMESTAMP)) as HOUR_BUCKET,
+  COUNT(*) as TOTAL_EVENTS,
+  SUM(CASE WHEN LEVEL = 'ERROR' THEN 1 ELSE 0 END) as ERROR_COUNT,
+  ROUND(ERROR_COUNT * 100.0 / TOTAL_EVENTS, 2) as ERROR_RATE_PCT
+FROM "APPLICATION-LOGS"
+WHERE TO_TIMESTAMP(TIMESTAMP) >= DATEADD('day', -7, CURRENT_TIMESTAMP())
+GROUP BY HOUR_BUCKET
+ORDER BY HOUR_BUCKET DESC;
+
+/*****************************************************
+ * HOST AND SERVICE ANALYSIS
+ *****************************************************/
+
+-- 13. Activity by Host
+SELECT 
+  HOST as HOST_NAME,
+  SERVICE,
+  COUNT(*) as EVENT_COUNT,
+  SUM(CASE WHEN LEVEL = 'ERROR' THEN 1 ELSE 0 END) as ERROR_COUNT,
+  MIN(TO_TIMESTAMP(TIMESTAMP)) as FIRST_SEEN,
+  MAX(TO_TIMESTAMP(TIMESTAMP)) as LAST_SEEN
+FROM "APPLICATION-LOGS"
+GROUP BY HOST_NAME, SERVICE
+ORDER BY EVENT_COUNT DESC
+LIMIT 20;
+
+-- 14. Service Dependencies (Based on Request ID correlation)
+SELECT 
+  s1.SERVICE as SOURCE_SERVICE,
+  s2.SERVICE as TARGET_SERVICE,
+  COUNT(DISTINCT s1.REQUEST_ID) as SHARED_REQUEST_COUNT
+FROM (
+  SELECT 
+    SERVICE,
+    REQUEST_ID
+  FROM "APPLICATION-LOGS"
+  WHERE REQUEST_ID IS NOT NULL
+) s1
+JOIN (
+  SELECT 
+    SERVICE,
+    REQUEST_ID
+  FROM "APPLICATION-LOGS"
+  WHERE REQUEST_ID IS NOT NULL
+) s2 
+  ON s1.REQUEST_ID = s2.REQUEST_ID
+  AND s1.SERVICE < s2.SERVICE
+GROUP BY SOURCE_SERVICE, TARGET_SERVICE
+HAVING SHARED_REQUEST_COUNT >= 5
+ORDER BY SHARED_REQUEST_COUNT DESC;
+
+/*****************************************************
+ * FULL-TEXT SEARCH
+ *****************************************************/
+
+-- 15. Search Logs by Keywords
+SELECT 
+  TO_TIMESTAMP(TIMESTAMP) as LOG_TIME,
+  LEVEL,
+  SERVICE,
+  MESSAGE,
+  ERROR as ERROR_TYPE
+FROM "APPLICATION-LOGS"
+WHERE 
+  MESSAGE ILIKE '%timeout%'
+  OR MESSAGE ILIKE '%connection%'
+  OR MESSAGE ILIKE '%failed%'
+  OR ERROR ILIKE '%timeout%'
+ORDER BY LOG_TIME DESC
+LIMIT 50;
+
+-- 16. Find Logs for Specific Request ID
+SELECT 
+  TO_TIMESTAMP(TIMESTAMP) as LOG_TIME,
+  SERVICE,
+  LEVEL,
+  MESSAGE,
+  DURATION_MS
+FROM "APPLICATION-LOGS"
+WHERE REQUEST_ID = 'YOUR-REQUEST-ID'  -- Replace with actual request ID
+ORDER BY LOG_TIME;
+
+/*****************************************************
+ * CREATE USEFUL VIEWS
+ *****************************************************/
+
+-- 17. Create a view for recent errors
+CREATE OR REPLACE VIEW RECENT_ERRORS AS
+SELECT 
+  TO_TIMESTAMP(TIMESTAMP) as LOG_TIMESTAMP,
+  SERVICE,
+  HOST,
+  MESSAGE,
+  ERROR,
+  REQUEST_ID,
+  STATUS_CODE
+FROM "APPLICATION-LOGS"
+WHERE LEVEL = 'ERROR'
+  AND TO_TIMESTAMP(TIMESTAMP) >= DATEADD('day', -1, CURRENT_TIMESTAMP())
+ORDER BY LOG_TIMESTAMP DESC;
+
+-- Query recent errors
+SELECT * FROM RECENT_ERRORS LIMIT 20;
+
+-- 18. Create a view for high-value requests (slow or errors)
+CREATE OR REPLACE VIEW HIGH_VALUE_REQUESTS AS
+SELECT 
+  REQUEST_ID,
+  SERVICE,
+  LEVEL,
+  MESSAGE,
+  DURATION_MS,
+  STATUS_CODE,
+  HOST,
+  TO_TIMESTAMP(TIMESTAMP) as LOG_TIMESTAMP
+FROM "APPLICATION-LOGS"
+WHERE 
+  (DURATION_MS > 1000 OR STATUS_CODE >= 400)
+  AND TO_TIMESTAMP(TIMESTAMP) >= DATEADD('day', -1, CURRENT_TIMESTAMP())
+ORDER BY DURATION_MS DESC;
+
+-- Query high-value requests
+SELECT * FROM HIGH_VALUE_REQUESTS LIMIT 20;
+
+/*****************************************************
+ * ADVANCED ANALYTICS
+ *****************************************************/
+
+-- 19. Anomaly Detection (Spike in errors)
+WITH hourly_stats AS (
+  SELECT 
+    DATE_TRUNC('hour', TO_TIMESTAMP(TIMESTAMP)) as HOUR_BUCKET,
+    COUNT(*) as TOTAL_EVENTS,
+    SUM(CASE WHEN LEVEL = 'ERROR' THEN 1 ELSE 0 END) as ERROR_COUNT
+  FROM "APPLICATION-LOGS"
+  WHERE TO_TIMESTAMP(TIMESTAMP) >= DATEADD('day', -7, CURRENT_TIMESTAMP())
+  GROUP BY HOUR_BUCKET
+),
+stats_with_avg AS (
+  SELECT 
+    HOUR_BUCKET,
+    TOTAL_EVENTS,
+    ERROR_COUNT,
+    AVG(ERROR_COUNT) OVER (ORDER BY HOUR_BUCKET ROWS BETWEEN 24 PRECEDING AND 1 PRECEDING) as AVG_ERRORS_24H,
+    STDDEV(ERROR_COUNT) OVER (ORDER BY HOUR_BUCKET ROWS BETWEEN 24 PRECEDING AND 1 PRECEDING) as STDDEV_ERRORS_24H
+  FROM hourly_stats
+)
+SELECT 
+  HOUR_BUCKET,
+  ERROR_COUNT,
+  AVG_ERRORS_24H,
+  CASE 
+    WHEN ERROR_COUNT > (AVG_ERRORS_24H + 2 * STDDEV_ERRORS_24H) THEN '⚠️ ANOMALY: High Error Count'
+    ELSE 'Normal'
+  END as ANOMALY_STATUS
+FROM stats_with_avg
+WHERE HOUR_BUCKET >= DATEADD('day', -2, CURRENT_TIMESTAMP())
+ORDER BY HOUR_BUCKET DESC;
+
+-- ============================================================================
+-- Analytics Complete!
+-- 
+-- These queries demonstrate the power of SQL analytics on streaming log data.
+-- You can:
+-- 
+-- - Monitor real-time service health
+-- - Track performance metrics and SLIs
+-- - Investigate incidents and errors
+-- - Detect anomalies and patterns
+-- - Correlate events across services
+-- 
+-- Try customizing these queries for your specific use case!
+-- ============================================================================
+
